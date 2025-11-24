@@ -21,9 +21,29 @@ const processOCR = async (req, res, next) => {
 
         const imageUrl = req.cloudinaryResult.url;
 
+        // Skip OCR on serverless/production to avoid timeout (Vercel has 10s limit)
+        // OCR will be handled by admin verification instead
+        if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+            console.log('Skipping OCR in production/serverless environment');
+            req.ocrData = {
+                extractedText: '',
+                confidence: 0,
+                skipped: true,
+                reason: 'OCR disabled in serverless environment to avoid timeout'
+            };
+            return next();
+        }
+
         console.log('Starting OCR processing for image:', imageUrl);
 
-        // Create a worker instance
+        // Create a worker instance with timeout
+        const ocrTimeout = setTimeout(() => {
+            console.warn('OCR processing timeout - skipping');
+            if (worker) {
+                worker.terminate().catch(err => console.error('Error terminating worker:', err));
+            }
+        }, 8000); // 8 second timeout
+
         worker = await Tesseract.createWorker('eng', 1, {
             logger: (m) => {
                 // Log progress for debugging
@@ -35,6 +55,8 @@ const processOCR = async (req, res, next) => {
 
         // Process image with Tesseract.js
         const { data } = await worker.recognize(imageUrl);
+
+        clearTimeout(ocrTimeout);
 
         // Extract the recognized text
         const extractedText = data.text.trim();
