@@ -167,7 +167,38 @@ const CouponDetails = () => {
             const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const token = localStorage.getItem('token');
 
-            // Create Stripe Payment Intent
+            // Always use escrow system for direct purchase (available for all prices)
+            if (true) {
+                // Use escrow/direct purchase system
+                const response = await axios.post(
+                    `${apiUrl}/api/transactions/create`,
+                    { couponId: id },
+                    {
+                        headers: { Authorization: `Bearer ${token}` }
+                    }
+                );
+
+                if (response.data.success) {
+                    setPurchasing(false);
+                    setSuccessMessage('Purchase successful! You have 15 minutes to verify the coupon works.');
+
+                    // Show transaction details with coupon code
+                    setTransactionDetails({
+                        couponCode: response.data.transaction.couponCode,
+                        amount: response.data.transaction.amount,
+                        expiresAt: response.data.transaction.expiresAt
+                    });
+
+                    // Refresh coupon data
+                    fetchCouponDetails();
+                } else {
+                    setPurchasing(false);
+                    setError('Failed to complete purchase. Please try again.');
+                }
+                return;
+            }
+
+            // For coupons ≥ ₹50, use Stripe payment
             const response = await axios.post(
                 `${apiUrl}/api/payments/create-order`,
                 { couponId: id },
@@ -455,11 +486,20 @@ const CouponDetails = () => {
                                             </span>
                                         )}
                                     </button>
-                                    <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
-                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                        </svg>
-                                        <span>Secure payment via Stripe</span>
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                            </svg>
+                                            <span>Secure escrow payment</span>
+                                        </div>
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                            <p className="text-xs text-green-800 text-center">
+                                                ✓ 15-minute verification period<br />
+                                                ✓ Report if coupon doesn't work<br />
+                                                ✓ Full refund for invalid coupons
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             )}

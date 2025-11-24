@@ -121,6 +121,18 @@ const createOrder = async (req, res, next) => {
             console.log('Deleted expired transaction:', existingTransaction._id);
         }
 
+        // Validate minimum amount for Stripe (₹50 minimum for card payments)
+        // Note: For amounts below ₹50, users should use the escrow/direct purchase system
+        if (coupon.price < 50) {
+            return res.status(400).json({
+                success: false,
+                error: {
+                    code: 'AMOUNT_TOO_SMALL',
+                    message: 'Card payments require a minimum of ₹50. This coupon uses direct purchase with escrow protection.'
+                }
+            });
+        }
+
         // Create Stripe Checkout Session with amount in paise (amount * 100)
         const amountInPaise = Math.round(coupon.price * 100);
 
@@ -190,11 +202,22 @@ const createOrder = async (req, res, next) => {
 
         // Handle Stripe API errors
         if (error.type) {
-            return res.status(500).json({
+            let errorMessage = 'Payment service error. Please try again.';
+
+            // Provide specific error messages for common Stripe errors
+            if (error.code === 'amount_too_small') {
+                errorMessage = 'Coupon price is too low. Minimum amount is ₹50.';
+            } else if (error.code === 'invalid_request_error') {
+                errorMessage = 'Invalid payment request. Please contact support.';
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+
+            return res.status(400).json({
                 success: false,
                 error: {
-                    code: 'STRIPE_API_ERROR',
-                    message: `Payment service error: ${error.message}`
+                    code: error.code || 'STRIPE_API_ERROR',
+                    message: errorMessage
                 }
             });
         }
