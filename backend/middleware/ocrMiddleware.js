@@ -5,6 +5,8 @@ const Tesseract = require('tesseract.js');
  * Extracts text from the image URL and stores it in req.ocrData
  */
 const processOCR = async (req, res, next) => {
+    let worker = null;
+
     try {
         // Check if Cloudinary URL exists
         if (!req.cloudinaryResult || !req.cloudinaryResult.url) {
@@ -21,19 +23,18 @@ const processOCR = async (req, res, next) => {
 
         console.log('Starting OCR processing for image:', imageUrl);
 
-        // Process image with Tesseract.js
-        const { data } = await Tesseract.recognize(
-            imageUrl,
-            'eng', // English language
-            {
-                logger: (m) => {
-                    // Log progress for debugging
-                    if (m.status === 'recognizing text') {
-                        console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
-                    }
+        // Create a worker instance
+        worker = await Tesseract.createWorker('eng', 1, {
+            logger: (m) => {
+                // Log progress for debugging
+                if (m.status === 'recognizing text') {
+                    console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
                 }
             }
-        );
+        });
+
+        // Process image with Tesseract.js
+        const { data } = await worker.recognize(imageUrl);
 
         // Extract the recognized text
         const extractedText = data.text.trim();
@@ -46,9 +47,21 @@ const processOCR = async (req, res, next) => {
             confidence: data.confidence
         };
 
+        // Terminate the worker
+        await worker.terminate();
+
         next();
     } catch (error) {
         console.error('OCR processing error:', error);
+
+        // Terminate worker if it exists
+        if (worker) {
+            try {
+                await worker.terminate();
+            } catch (terminateError) {
+                console.error('Error terminating worker:', terminateError);
+            }
+        }
 
         // Don't fail the request if OCR fails, just log and continue
         // Set status to pending_verification for manual admin review
