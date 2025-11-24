@@ -13,6 +13,7 @@ import Notifications from './pages/Notifications';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminCouponVerification from './pages/admin/AdminCouponVerification';
 import AdminUsersManagement from './pages/admin/AdminUsersManagement';
+import NotFound from './pages/NotFound';
 
 function App() {
   return (
@@ -79,6 +80,9 @@ function App() {
             </AdminRoute>
           }
         />
+
+        {/* 404 Catch-all route - must be last */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Router>
   );
