@@ -59,14 +59,6 @@ const couponSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  ocrExtractedCode: {
-    type: String,
-    default: null
-  },
-  isOCRMatched: {
-    type: Boolean,
-    default: false
-  },
   status: {
     type: String,
     enum: ['pending_verification', 'rejected', 'approved', 'sold'],

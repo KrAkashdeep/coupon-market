@@ -1,113 +1,12 @@
-const Tesseract = require('tesseract.js');
-
 /**
- * Middleware to process OCR on uploaded coupon screenshot
- * Extracts text from the image URL and stores it in req.ocrData
+ * Middleware to validate coupon code format
+ * Ensures code is alphanumeric
  */
-const processOCR = async (req, res, next) => {
-    let worker = null;
-
+const validateCouponCode = (req, res, next) => {
     try {
-        // Check if Cloudinary URL exists
-        if (!req.cloudinaryResult || !req.cloudinaryResult.url) {
-            return res.status(400).json({
-                success: false,
-                error: {
-                    code: 'VALIDATION_ERROR',
-                    message: 'Image URL not found. Upload image first.'
-                }
-            });
-        }
+        const { code } = req.body;
 
-        const imageUrl = req.cloudinaryResult.url;
-
-        // Skip OCR on serverless/production to avoid timeout (Vercel has 10s limit)
-        // OCR will be handled by admin verification instead
-        if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
-            console.log('Skipping OCR in production/serverless environment');
-            req.ocrData = {
-                extractedText: '',
-                confidence: 0,
-                skipped: true,
-                reason: 'OCR disabled in serverless environment to avoid timeout'
-            };
-            return next();
-        }
-
-        console.log('Starting OCR processing for image:', imageUrl);
-
-        // Create a worker instance with timeout
-        const ocrTimeout = setTimeout(() => {
-            console.warn('OCR processing timeout - skipping');
-            if (worker) {
-                worker.terminate().catch(err => console.error('Error terminating worker:', err));
-            }
-        }, 8000); // 8 second timeout
-
-        worker = await Tesseract.createWorker('eng', 1, {
-            logger: (m) => {
-                // Log progress for debugging
-                if (m.status === 'recognizing text') {
-                    console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
-                }
-            }
-        });
-
-        // Process image with Tesseract.js
-        const { data } = await worker.recognize(imageUrl);
-
-        clearTimeout(ocrTimeout);
-
-        // Extract the recognized text
-        const extractedText = data.text.trim();
-
-        console.log('OCR extraction completed. Text length:', extractedText.length);
-
-        // Store OCR results in request object
-        req.ocrData = {
-            extractedText: extractedText,
-            confidence: data.confidence
-        };
-
-        // Terminate the worker
-        await worker.terminate();
-
-        next();
-    } catch (error) {
-        console.error('OCR processing error:', error);
-
-        // Terminate worker if it exists
-        if (worker) {
-            try {
-                await worker.terminate();
-            } catch (terminateError) {
-                console.error('Error terminating worker:', terminateError);
-            }
-        }
-
-        // Don't fail the request if OCR fails, just log and continue
-        // Set status to pending_verification for manual admin review
-        req.ocrData = {
-            extractedText: '',
-            confidence: 0,
-            error: error.message
-        };
-
-        // Continue to next middleware
-        next();
-    }
-};
-
-/**
- * Middleware to compare entered coupon code with OCR extracted text
- * Sets isOCRMatched flag based on comparison result
- */
-const compareCode = (req, res, next) => {
-    try {
-        // Get the entered coupon code from request body
-        const enteredCode = req.body.code;
-
-        if (!enteredCode) {
+        if (!code) {
             return res.status(400).json({
                 success: false,
                 error: {
@@ -117,47 +16,31 @@ const compareCode = (req, res, next) => {
             });
         }
 
-        // Get OCR extracted text
-        const extractedText = req.ocrData?.extractedText || '';
-
-        // Normalize both strings for comparison
-        // Remove whitespace, convert to uppercase for case-insensitive matching
-        const normalizedCode = enteredCode.replace(/\s+/g, '').toUpperCase();
-        const normalizedExtractedText = extractedText.replace(/\s+/g, '').toUpperCase();
-
-        // Check if the entered code exists in the extracted text
-        const isMatched = normalizedExtractedText.includes(normalizedCode);
-
-        console.log('Code comparison:');
-        console.log('  Entered code:', enteredCode);
-        console.log('  Normalized code:', normalizedCode);
-        console.log('  Extracted text length:', extractedText.length);
-        console.log('  Match result:', isMatched);
-
-        // Store comparison result in request object
-        req.ocrComparison = {
-            isOCRMatched: isMatched,
-            enteredCode: enteredCode,
-            extractedText: extractedText
-        };
+        // Validate code is alphanumeric
+        const alphanumericRegex = /^[a-zA-Z0-9]+$/;
+        if (!alphanumericRegex.test(code.trim())) {
+            return res.status(400).json({
+                success: false,
+                error: {
+                    code: 'VALIDATION_ERROR',
+                    message: 'Coupon code must contain only alphanumeric characters'
+                }
+            });
+        }
 
         next();
     } catch (error) {
-        console.error('Code comparison error:', error);
-
-        // Set default values if comparison fails
-        req.ocrComparison = {
-            isOCRMatched: false,
-            enteredCode: req.body.code || '',
-            extractedText: req.ocrData?.extractedText || '',
-            error: error.message
-        };
-
-        next();
+        console.error('Code validation error:', error);
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'VALIDATION_ERROR',
+                message: 'Error validating coupon code'
+            }
+        });
     }
 };
 
 module.exports = {
-    processOCR,
-    compareCode
+    validateCouponCode
 };

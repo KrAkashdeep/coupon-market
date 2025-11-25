@@ -13,22 +13,21 @@ const {
 } = require('../controllers/couponController');
 const { verifyToken, isNotBanned, isAdmin } = require('../middleware/authMiddleware');
 const { validateImage, uploadToCloudinary } = require('../middleware/uploadMiddleware');
-const { processOCR, compareCode } = require('../middleware/ocrMiddleware');
+const { validateCouponCode } = require('../middleware/ocrMiddleware');
 
 const router = express.Router();
 
 // Protected routes (require authentication)
 router.post('/create', verifyToken, createCoupon);
 
-// Enhanced upload route with image upload, OCR processing, and verification
+// Upload route with image upload and manual admin verification
 router.post(
   '/upload',
   verifyToken,
   isNotBanned,
   validateImage,
   uploadToCloudinary,
-  processOCR,
-  compareCode,
+  validateCouponCode,
   uploadCoupon
 );
 

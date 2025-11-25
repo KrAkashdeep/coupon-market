@@ -15,8 +15,11 @@ const createOrder = async (req, res, next) => {
         const { couponId } = req.body;
         const buyerId = req.user.id;
 
+        console.log('🔵 createOrder called with couponId:', couponId, 'buyerId:', buyerId);
+
         // Validate couponId is provided
         if (!couponId) {
+            console.error('❌ Missing couponId in request body');
             return res.status(400).json({
                 success: false,
                 error: {
@@ -28,6 +31,7 @@ const createOrder = async (req, res, next) => {
 
         // Find coupon and populate seller details
         const coupon = await Coupon.findById(couponId).populate('sellerId', 'name email');
+        console.log('📦 Coupon found:', coupon ? 'Yes' : 'No', coupon ? `Status: ${coupon.status}` : '');
 
         // Check if coupon exists
         if (!coupon) {
@@ -42,11 +46,12 @@ const createOrder = async (req, res, next) => {
 
         // Check if coupon is approved
         if (coupon.status !== 'approved') {
+            console.error('Coupon not approved. Status:', coupon.status);
             return res.status(400).json({
                 success: false,
                 error: {
                     code: 'COUPON_NOT_APPROVED',
-                    message: 'Coupon is not approved for purchase'
+                    message: `Coupon is not approved for purchase. Current status: ${coupon.status}`
                 }
             });
         }
@@ -121,14 +126,13 @@ const createOrder = async (req, res, next) => {
             console.log('Deleted expired transaction:', existingTransaction._id);
         }
 
-        // Validate minimum amount for Stripe (₹50 minimum for card payments)
-        // Note: For amounts below ₹50, users should use the escrow/direct purchase system
-        if (coupon.price < 50) {
+        // Validate minimum amount for Stripe (₹1 minimum)
+        if (coupon.price < 1) {
             return res.status(400).json({
                 success: false,
                 error: {
                     code: 'AMOUNT_TOO_SMALL',
-                    message: 'Card payments require a minimum of ₹50. This coupon uses direct purchase with escrow protection.'
+                    message: 'Coupon price must be at least ₹1'
                 }
             });
         }
@@ -136,8 +140,10 @@ const createOrder = async (req, res, next) => {
         // Create Stripe Checkout Session with amount in paise (amount * 100)
         const amountInPaise = Math.round(coupon.price * 100);
 
-        console.log('Creating Stripe Checkout Session...');
-        console.log('Amount:', amountInPaise, 'Currency: INR');
+        console.log('💳 Creating Stripe Checkout Session...');
+        console.log('  Amount:', amountInPaise, 'paise (₹' + coupon.price + ')');
+        console.log('  Currency: INR');
+        console.log('  Coupon:', coupon.storeName, '-', coupon.code);
 
         const session = await stripeInstance.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -164,6 +170,11 @@ const createOrder = async (req, res, next) => {
             },
         });
 
+        console.log('✅ Stripe session created successfully');
+        console.log('  Session ID:', session.id);
+        console.log('  Session URL:', session.url);
+        console.log('  Payment Intent:', session.payment_intent);
+
         // Create transaction record with stripePaymentIntentId and status 'pending'
         const transaction = await Transaction.create({
             buyerId: buyerId,
@@ -176,6 +187,7 @@ const createOrder = async (req, res, next) => {
         });
 
         // Return checkout session details
+        console.log('📤 Sending response with session URL');
         return res.status(201).json({
             success: true,
             data: {
@@ -193,6 +205,7 @@ const createOrder = async (req, res, next) => {
                 }
             }
         });
+        console.log('✅ Response sent successfully');
 
     } catch (error) {
         // Log the actual error for debugging
@@ -206,7 +219,7 @@ const createOrder = async (req, res, next) => {
 
             // Provide specific error messages for common Stripe errors
             if (error.code === 'amount_too_small') {
-                errorMessage = 'Coupon price is too low. Minimum amount is ₹50.';
+                errorMessage = 'Coupon price is too low. Minimum amount is ₹1.';
             } else if (error.code === 'invalid_request_error') {
                 errorMessage = 'Invalid payment request. Please contact support.';
             } else if (error.message) {
@@ -882,9 +895,74 @@ const initiateRefund = async (req, res, next) => {
     }
 };
 
+/**
+ * Retry payment by clearing pending transaction
+ * @route POST /api/payments/retry/:couponId
+ * @access Private
+ */
+const retryPayment = async (req, res, next) => {
+    try {
+        const { couponId } = req.params;
+        const buyerId = req.user.id;
+
+        console.log('🔄 Retry payment called for couponId:', couponId, 'buyerId:', buyerId);
+
+        // Validate couponId
+        if (!couponId) {
+            return res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_COUPON_ID',
+                    message: 'Coupon ID is required'
+                }
+            });
+        }
+
+        // Find pending transaction for this coupon and buyer
+        const pendingTransaction = await Transaction.findOne({
+            couponId: couponId,
+            buyerId: buyerId,
+            paymentStatus: { $in: ['pending', 'processing'] }
+        });
+
+        if (!pendingTransaction) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'NO_PENDING_PAYMENT',
+                    message: 'No pending payment found for this coupon'
+                }
+            });
+        }
+
+        console.log('✅ Found pending transaction:', pendingTransaction._id);
+        console.log('🗑️ Deleting pending transaction...');
+
+        // Delete the pending transaction
+        await Transaction.deleteOne({ _id: pendingTransaction._id });
+
+        console.log('✅ Pending transaction deleted successfully');
+
+        // Return success response
+        return res.status(200).json({
+            success: true,
+            message: 'Pending payment cleared. You can now try purchasing again.',
+            data: {
+                couponId: couponId,
+                cleared: true
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in retryPayment:', error);
+        next(error);
+    }
+};
+
 module.exports = {
     createOrder,
     verifyPayment,
     handleWebhook,
-    initiateRefund
+    initiateRefund,
+    retryPayment
 };

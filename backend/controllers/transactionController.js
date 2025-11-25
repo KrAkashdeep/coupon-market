@@ -8,9 +8,15 @@ const mongoose = require('mongoose');
 const createTransaction = async (req, res, next) => {
     try {
         const { couponId } = req.body;
+        const buyerId = req.user?.id;
+
+        console.log('🔵 createTransaction called');
+        console.log('  couponId:', couponId);
+        console.log('  buyerId:', buyerId);
 
         // Validate couponId is provided
         if (!couponId) {
+            console.error('❌ Missing couponId');
             return res.status(400).json({
                 success: false,
                 error: {
@@ -98,7 +104,9 @@ const createTransaction = async (req, res, next) => {
             expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes from now
         });
 
+        console.log('💾 Saving transaction...');
         await transaction.save();
+        console.log('✅ Transaction saved:', transaction._id);
 
         // Update coupon: set isSold to true and set buyerId
         coupon.isSold = true;
@@ -134,6 +142,7 @@ const createTransaction = async (req, res, next) => {
         });
 
         // Return transaction with revealed coupon code
+        console.log('📤 Sending success response for transaction:', transaction._id);
         res.status(201).json({
             success: true,
             message: 'Transaction created successfully',
@@ -152,6 +161,7 @@ const createTransaction = async (req, res, next) => {
                 }
             }
         });
+        console.log('✅ Response sent successfully');
     } catch (error) {
         console.error('Create transaction error:', error);
         next(error);

@@ -30,8 +30,6 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Import routes
 const authRoutes = require("./routes/authRoutes");
@@ -40,6 +38,16 @@ const transactionRoutes = require("./routes/transactionRoutes");
 const userRoutes = require("./routes/userRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const { handleWebhook } = require("./controllers/paymentController");
+const { webhookRateLimiter } = require("./middleware/rateLimitMiddleware");
+
+// Stripe webhook needs raw body for signature verification
+// Must be before express.json() middleware
+app.post("/api/payments/webhook", express.raw({ type: "application/json" }), webhookRateLimiter, handleWebhook);
+
+// Parse JSON and URL-encoded bodies for all other routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Basic route for testing
 app.get("/", (req, res) => {

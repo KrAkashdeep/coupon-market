@@ -241,14 +241,7 @@ const MyCoupons = () => {
                                                     {isExpired && ' (Expired)'}
                                                 </span>
                                             </div>
-                                            {coupon.ocrExtractedCode && (
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-gray-500">OCR Match:</span>
-                                                    <span className={`font-medium ${coupon.isOCRMatched ? 'text-green-600' : 'text-red-600'}`}>
-                                                        {coupon.isOCRMatched ? '✓ Matched' : '✗ Not Matched'}
-                                                    </span>
-                                                </div>
-                                            )}
+
                                         </div>
 
                                         {/* Rejection Reason */}

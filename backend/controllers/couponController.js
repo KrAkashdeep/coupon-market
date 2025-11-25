@@ -55,7 +55,7 @@ const createCoupon = async (req, res, next) => {
   }
 };
 
-// Enhanced coupon upload with screenshot, OCR verification
+// Upload coupon with screenshot for manual admin verification
 const uploadCoupon = async (req, res, next) => {
   try {
     const { code, brand, expiryDate, price, title, description, discountPercent, discountAmount } = req.body;
@@ -78,18 +78,6 @@ const uploadCoupon = async (req, res, next) => {
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Either discount percentage or discount amount is required'
-        }
-      });
-    }
-
-    // Validate code is alphanumeric
-    const alphanumericRegex = /^[a-zA-Z0-9]+$/;
-    if (!alphanumericRegex.test(code.trim())) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Coupon code must contain only alphanumeric characters'
         }
       });
     }
@@ -142,11 +130,7 @@ const uploadCoupon = async (req, res, next) => {
       });
     }
 
-    // Get OCR data (should be set by ocrMiddleware)
-    const ocrExtractedCode = req.ocrData?.extractedText || '';
-    const isOCRMatched = req.ocrComparison?.isOCRMatched || false;
-
-    // Create new coupon with verification fields
+    // Create new coupon with screenshot for manual admin verification
     const couponData = {
       title: title || `${brand} Coupon`,
       storeName: brand,
@@ -156,8 +140,6 @@ const uploadCoupon = async (req, res, next) => {
       code: code.trim(),
       sellerId: req.user.id,
       screenshotURL: req.cloudinaryResult.url,
-      ocrExtractedCode: ocrExtractedCode,
-      isOCRMatched: isOCRMatched,
       status: 'pending_verification',
       isSold: false,
       buyerId: null
@@ -177,7 +159,7 @@ const uploadCoupon = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Coupon uploaded successfully and is pending verification',
+      message: 'Coupon uploaded successfully and is pending manual verification by admin',
       coupon: {
         id: coupon._id,
         code: coupon.code,
@@ -186,7 +168,6 @@ const uploadCoupon = async (req, res, next) => {
         price: coupon.price,
         screenshotURL: coupon.screenshotURL,
         status: coupon.status,
-        isOCRMatched: coupon.isOCRMatched,
         createdAt: coupon.createdAt
       }
     });

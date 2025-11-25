@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { verifyToken, isNotBanned } = require('../middleware/authMiddleware');
 const { webhookRateLimiter } = require('../middleware/rateLimitMiddleware');
-const { createOrder, verifyPayment, handleWebhook, initiateRefund } = require('../controllers/paymentController');
+const { createOrder, verifyPayment, handleWebhook, initiateRefund, retryPayment } = require('../controllers/paymentController');
 
 /**
  * @route   POST /api/payments/create-order
@@ -18,13 +18,8 @@ router.post('/create-order', verifyToken, isNotBanned, createOrder);
  */
 router.post('/verify', verifyToken, isNotBanned, verifyPayment);
 
-/**
- * @route   POST /api/payments/webhook
- * @desc    Handle Stripe webhook events
- * @access  Public (webhooks come from Stripe, no authentication)
- * @note    Rate limited to prevent abuse
- */
-router.post('/webhook', webhookRateLimiter, handleWebhook);
+// Webhook is handled directly in server.js with raw body parsing
+// This is necessary for Stripe signature verification
 
 /**
  * @route   POST /api/payments/refund/:id
@@ -32,5 +27,12 @@ router.post('/webhook', webhookRateLimiter, handleWebhook);
  * @access  Private (authenticated users only)
  */
 router.post('/refund/:id', verifyToken, isNotBanned, initiateRefund);
+
+/**
+ * @route   POST /api/payments/retry/:couponId
+ * @desc    Retry payment by clearing pending transaction
+ * @access  Private (authenticated users only)
+ */
+router.post('/retry/:couponId', verifyToken, isNotBanned, retryPayment);
 
 module.exports = router;

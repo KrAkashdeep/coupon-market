@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+import axiosInstance from '../api/axios';
 import Navbar from '../components/Navbar';
 import TrustBadge from '../components/TrustBadge';
 import Loader from '../components/Loader';
@@ -23,6 +24,8 @@ const CouponDetails = () => {
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [purchasedCouponDetails, setPurchasedCouponDetails] = useState(null);
     const [transactionDetails, setTransactionDetails] = useState(null);
+    const [pendingPaymentError, setPendingPaymentError] = useState(null);
+    const [retrying, setRetrying] = useState(false);
 
     // Check for payment success from URL parameters
     useEffect(() => {
@@ -49,14 +52,8 @@ const CouponDetails = () => {
             try {
                 setLoading(true);
                 setError('');
-                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-                const token = localStorage.getItem('token');
 
-                const config = token ? {
-                    headers: { Authorization: `Bearer ${token}` }
-                } : {};
-
-                const response = await axios.get(`${apiUrl}/api/coupons/${id}`, config);
+                const response = await axiosInstance.get(`/api/coupons/${id}`);
 
                 if (response.data.success) {
                     setCoupon(response.data.coupon);
@@ -89,17 +86,11 @@ const CouponDetails = () => {
         try {
             const { sessionId } = stripeResponse;
 
-            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-            const token = localStorage.getItem('token');
-
             // Verify payment with backend
-            const response = await axios.post(
-                `${apiUrl}/api/payments/verify`,
+            const response = await axiosInstance.post(
+                '/api/payments/verify',
                 {
                     sessionId
-                },
-                {
-                    headers: { Authorization: `Bearer ${token}` }
                 }
             );
 
@@ -152,6 +143,46 @@ const CouponDetails = () => {
         }
     };
 
+    // Handle retrying pending payment
+    const handleRetryPayment = async () => {
+        try {
+            setRetrying(true);
+            console.log('🔄 Retrying payment for couponId:', id);
+
+            const response = await axiosInstance.post(
+                `/api/payments/retry/${id}`
+            );
+
+            console.log('✅ Retry response:', response.data);
+
+            if (response.data.success) {
+                console.log('✅ Pending payment cleared. You can now try purchasing again.');
+                setPendingPaymentError(null);
+                setError('');
+
+                // Now try to purchase again
+                setTimeout(() => {
+                    handlePurchase();
+                }, 500);
+            } else {
+                setError('Failed to clear pending payment. Please try again.');
+            }
+        } catch (err) {
+            console.error('❌ Error retrying payment:', err);
+            let errorMessage = 'Failed to clear pending payment';
+
+            if (err.response?.data?.error?.message) {
+                errorMessage = err.response.data.error.message;
+            } else if (err.response?.data?.message) {
+                errorMessage = err.response.data.message;
+            }
+
+            setError(errorMessage);
+        } finally {
+            setRetrying(false);
+        }
+    };
+
     // Handle purchase
     const handlePurchase = async () => {
         if (!isAuthenticated) {
@@ -167,54 +198,36 @@ const CouponDetails = () => {
             const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const token = localStorage.getItem('token');
 
-            // Always use escrow system for direct purchase (available for all prices)
-            if (true) {
-                // Use escrow/direct purchase system
-                const response = await axios.post(
-                    `${apiUrl}/api/transactions/create`,
-                    { couponId: id },
-                    {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }
-                );
+            console.log('🔵 Starting purchase with couponId:', id);
 
-                if (response.data.success) {
-                    setPurchasing(false);
-                    setSuccessMessage('Purchase successful! You have 15 minutes to verify the coupon works.');
-
-                    // Show transaction details with coupon code
-                    setTransactionDetails({
-                        couponCode: response.data.transaction.couponCode,
-                        amount: response.data.transaction.amount,
-                        expiresAt: response.data.transaction.expiresAt
-                    });
-
-                    // Refresh coupon data
-                    fetchCouponDetails();
-                } else {
-                    setPurchasing(false);
-                    setError('Failed to complete purchase. Please try again.');
-                }
-                return;
-            }
-
-            // For coupons ≥ ₹50, use Stripe payment
-            const response = await axios.post(
-                `${apiUrl}/api/payments/create-order`,
-                { couponId: id },
-                {
-                    headers: { Authorization: `Bearer ${token}` }
-                }
+            // Use Stripe payment for all purchases
+            console.log('📤 Calling /api/payments/create-order');
+            const response = await axiosInstance.post(
+                '/api/payments/create-order',
+                { couponId: id }
             );
 
-            if (response.data.success) {
+            console.log('✅ Response received:', response.data);
+            console.log('Response status:', response.status);
+            console.log('Response data.success:', response.data.success);
+            console.log('Response data.data:', response.data.data);
+
+            if (response.data && response.data.success && response.data.data) {
                 const { sessionUrl, sessionId } = response.data.data;
 
-                console.log('Payment order created successfully');
+                console.log('✅ Payment order created successfully');
                 console.log('Session ID:', sessionId);
                 console.log('Session URL:', sessionUrl);
 
+                if (!sessionUrl) {
+                    console.error('❌ Session URL is missing!');
+                    setPurchasing(false);
+                    setError('Payment session URL is missing. Please try again.');
+                    return;
+                }
+
                 // Redirect to Stripe checkout
+                console.log('🔄 Redirecting to Stripe checkout...');
                 openCheckout(
                     {
                         sessionUrl,
@@ -224,7 +237,7 @@ const CouponDetails = () => {
                     handlePaymentFailure
                 );
             } else {
-                console.error('Payment order creation failed:', response.data);
+                console.error('❌ Payment order creation failed:', response.data);
                 setPurchasing(false);
                 setError('Failed to create payment order. Please try again.');
             }
@@ -232,21 +245,35 @@ const CouponDetails = () => {
             setPurchasing(false);
             let errorMessage = 'Failed to create payment order';
 
+            console.error('❌ Error in handlePurchase:', err);
+            console.error('Error response:', err.response?.data);
+            console.error('Error status:', err.response?.status);
+
             if (err.response?.status === 400) {
                 // Handle specific error cases
                 if (err.response.data?.error?.message) {
                     errorMessage = err.response.data.error.message;
+
+                    // Check if it's a pending payment error
+                    if (err.response.data?.error?.code === 'PAYMENT_IN_PROGRESS') {
+                        console.log('⏳ Pending payment detected');
+                        setPendingPaymentError(errorMessage);
+                    }
                 } else if (err.response.data?.message) {
                     errorMessage = err.response.data.message;
                 }
+            } else if (err.response?.status === 403) {
+                errorMessage = 'You cannot purchase your own coupon';
             } else if (err.response?.status === 404) {
                 errorMessage = 'Coupon not found or no longer available';
             } else if (err.response?.status === 409) {
                 errorMessage = 'This coupon has already been sold';
             } else if (err.response?.status === 500) {
-                errorMessage = 'Payment service temporarily unavailable. Please try again later.';
+                errorMessage = 'Server error. Please try again later.';
             } else if (err.request) {
                 errorMessage = 'Network error. Please check your connection and try again.';
+            } else {
+                errorMessage = err.message || 'An unexpected error occurred';
             }
 
             setError(errorMessage);
@@ -340,7 +367,18 @@ const CouponDetails = () => {
                 {/* Error Message */}
                 {error && (
                     <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-                        {error}
+                        <div className="flex justify-between items-start">
+                            <p>{error}</p>
+                            {pendingPaymentError && (
+                                <button
+                                    onClick={handleRetryPayment}
+                                    disabled={retrying || purchasing}
+                                    className="ml-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap text-sm font-medium"
+                                >
+                                    {retrying ? 'Clearing...' : 'Retry Payment'}
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
 
