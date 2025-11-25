@@ -13,9 +13,15 @@ dotenv.config();
 // Connect to MongoDB
 connectDB();
 
-// Initialize cron jobs
-autoConfirmExpiredTransactions();
-sendTimerWarnings();
+// Initialize cron jobs only in development (not on Vercel)
+// On Vercel, use Vercel Cron Jobs instead
+if (process.env.NODE_ENV !== 'production') {
+  autoConfirmExpiredTransactions();
+  sendTimerWarnings();
+  console.log('✅ Cron jobs initialized (development mode)');
+} else {
+  console.log('⚠️ Cron jobs disabled (production mode - use Vercel Cron instead)');
+}
 
 const app = express();
 
@@ -24,6 +30,8 @@ app.use(
   cors({
     origin: [
       process.env.FRONTEND_URL || "http://localhost:5173",
+      "http://localhost:5173",
+      "https://mycouponmarket.vercel.app"
     ],
     credentials: true,
   })
@@ -64,8 +72,13 @@ app.use("/api/payments", paymentRoutes);
 const errorHandler = require("./middleware/errorMiddleware");
 app.use(errorHandler);
 
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Export for Vercel serverless
+module.exports = app;
+
+// Start server only in development (not on Vercel)
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
